@@ -1,20 +1,35 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Feb  5 12:38:17 2018
 
-### CONNECT 4 ###
+@author: Jacques Cartuyvels and Antoine Van Hoof
+"""
+##################################
+### CONNECT 4 - implementation ###
+##################################
+
+#TODO
+# - interface graphique
+# - number of layers/neurones
+# - function d'activation (relu, softmax)
+# - dropout
+# - convalution layer
+# - differents optimizer (GradientDescentOptimizer, AdagradOptimizer, or MomentumOptimizer)
+
 
 import copy as cp
-import random
 import numpy as np
-import theano as th
+import random
 import tensorflow as tf
-from keras.models import Sequential
-from keras.layers import Dense, Dropout, Activation, Flatten
-from keras.layers import Convolution2D, MaxPooling2D
-from keras.utils import np_utils
 
+#generates new, empty board
+def newBoard():
+    board = np.full([6, 7], ' . ')
+    return board
 
 #displays game board
 def drawBoard(board):
-    #print('')
+    print('')
     print('    | ' + board[0][0] + board[0][1] + board[0][2] + board[0][3] + board[0][4] + board[0][5] + board[0][6] + ' |')
     print('    | ' + board[1][0] + board[1][1] + board[1][2] + board[1][3] + board[1][4] + board[1][5] + board[1][6] + ' |')
     print('    | ' + board[2][0] + board[2][1] + board[2][2] + board[2][3] + board[2][4] + board[2][5] + board[2][6] + ' |')
@@ -23,15 +38,10 @@ def drawBoard(board):
     print('    | ' + board[5][0] + board[5][1] + board[5][2] + board[5][3] + board[5][4] + board[5][5] + board[5][6] + ' |')
     #print('     _  _  _  _  _  _  _  _ ')
     print('')
-
-#generates new, empty board
-def newBoard():
-    board = np.full([6, 7], ' . ')
-    return board
-
+    
 class Game:
     #this class runs the games with our latest trained AI
-    def __init__(self, ai, opponent, aiFirst, visible, exploration):
+    def __init__(self, ai, opponent, aiFirst, visible, exploration, freqrand = 3):
         self.ai = ai
         #opponents: 'human', 'random', 'ai'
         self.opponent = opponent
@@ -41,6 +51,8 @@ class Game:
         self.visible = visible
         #exploration vs exploitation: enables a random move once in a while to fully explore the solution space
         self.exploration = exploration
+        self.timer = 0
+        self.X = freqrand
         #the winner of the game will be decided later
         self.winner = None
         #the full game is kept through a list of all the boards, step by step
@@ -61,7 +73,7 @@ class Game:
                 if go:
                     self.winner = w
                     break
-        else:
+        elif self.getAIFirst() == False:
             while True:
                 self.opponentMove()
                 go, w = isGameOver(self.getTrace().getLastBoard())
@@ -78,12 +90,12 @@ class Game:
             
     def aiMove(self):
         #AI always puts x's
-        
         #enable random moves for solution space exploration
-        #TODO add condition to make a random move every X number of steps
-        if False:
+        if self.exploration == True & self.timer%self.X == 0:
+            self.timer = self.timer + 1
             self.randomPlay(' x ')
         else:
+            self.timer = self.timer + 1
             #first get potential moves that the AI can play based on the current board
             options = self.getOptions(self.getTrace().getLastBoard())
             #let the AI score the potential moves 
@@ -103,7 +115,7 @@ class Game:
             if self.getVisible():
                 print('The AI played:')
                 drawBoard(newTrace.getLastBoard())
-    
+                
     def opponentMove(self):
         #the opponent always plays with ' o '
         if self.opponent == 'human':
@@ -115,8 +127,26 @@ class Game:
             if self.getVisible():
                 print('Random played:')
                 drawBoard(self.getTrace().getLastBoard())
-#        else self.opponent == 'ai':
-#            return tobecompleted
+        elif self.opponent == 'ai':
+            #first get potential moves that the AI can play based on the current board
+            options = self.getOptions(self.getTrace().getLastBoard())
+            #let the AI score the potential moves 
+            scores = np.array([])
+            bestMove = 0
+            for i in range(0, options.size):                
+                #get a board that represents the move
+                newBoard = self.move(self.getTrace().getLastBoard(), int(options[i]), ' o ')
+                #AI scores the move 
+                scores = np.append(scores, self.getAI().score(newBoard))
+                if scores[i] > scores[bestMove]:
+                    bestMove = int(i) 
+            newTrace = self.getTrace()
+            #play the best possible move
+            newTrace.addBoard(self.move(newTrace.getLastBoard(), int(options[bestMove]), ' o '))
+            self.setTrace(newTrace)
+            if self.getVisible():
+                print('The AI played:')
+                drawBoard(newTrace.getLastBoard())
 
     #here you are the one playing
     def humanPlay(self):
@@ -129,7 +159,7 @@ class Game:
         newTrace = self.getTrace()
         newTrace.addBoard(self.move(newTrace.getLastBoard(), int(a), ' o '))
         self.setTrace(newTrace)
-        
+                
     #random player, used for training and presentation
     def randomPlay(self, player):
         #get potential moves
@@ -138,8 +168,8 @@ class Game:
         #choose a random option
         newTrace.addBoard(self.move(newTrace.getLastBoard(), int(options[random.randint(0,options.size-1)]), player))
         self.setTrace(newTrace)
-    
-    #get different move options based on current board
+            
+        #get different move options based on current board
     def getOptions(self, board):
         options = np.array([])
         for i in range(0,7):   
@@ -165,7 +195,7 @@ class Game:
     
     #update the game trace
     def setTrace(self, newTrace):
-        self.trace = newTrace
+        self.trace = newTrace    
         
     def getAI(self):
         return self.ai
@@ -178,6 +208,63 @@ class Game:
         
     def getWinner(self):
         return self.winner
+    
+#auxiliary classes required for keeping the trace of moves
+class Node:
+    def __init__(self, board):
+        self.cargo = board
+        self.next = None
+
+    def getBoard(self):
+        return self.cargo
+    
+    def getNext(self):
+        return self.next
+    
+    def hasNext(self):
+        if self.next is None:
+            return False
+        else:
+            return True
+    
+    def cleanNext(self):
+        self.next = None
+    
+    def addNext(self, node):
+        if self.hasNext():
+            self.getNext().addNext(node)
+        else: 
+            self.next = node        
+            
+    def getLast(self):
+        if self.hasNext():
+            return self.getNext().getLast()
+        else:
+            return self.getBoard()
+        
+    def removeLast(self):
+        if self.hasNext():
+            if self.getNext().hasNext:
+                self.getNext().removeLast()
+            else:
+                self.cleanNext()
+    
+#this class is used to keep the trace of nodes
+class LinkedList:
+    def __init__(self):
+        self.head = Node(newBoard())
+    
+    def getHead(self):
+        return self.head
+        
+    def addBoard(self, board):
+        self.getHead().addNext(Node(cp.deepcopy(board)))
+            
+    def getLastBoard(self):
+        return cp.deepcopy(self.getHead().getLast())
+    
+    def removeLastBoard(self):
+        self.getHead().removeLast()    
 
 #checks if game is over - ugly, quick, hard coding
 def isGameOver(board):
@@ -358,94 +445,89 @@ def isGameOver(board):
     
     return(gameOver, winner)
 
+########### TO DO ####################
+
+# function which extracts the features of a board
+def extract_feat(board):
+    x = 0
+    '''
+    board_array = np.reshape(board,(3,3))   # reshape into grid form for easier checking
+    x = np.zeros(7)
+    x[0] = 1
+    cols = np.transpose(board_array)
+    diag = np.row_stack((np.diag(board_array),np.diag(np.fliplr(board_array))))
+    final = np.row_stack((board_array,cols,diag))
+    for i in range(0,8):
+    # adding features to characterize the condition of the board 
+        blank = np.count_nonzero(final[i,:] == ' ')
+        X_cnt = np.count_nonzero(final[i,:] == 'X')
+        O_cnt = np.count_nonzero(final[i,:] == 'O')
+        if X_cnt == 2 and blank == 1:
+            x[1] += 1
+        elif O_cnt == 2 and blank == 1:
+            x[2] += 1
+        elif X_cnt == 1 and blank == 2:
+            x[3] += 1
+        elif O_cnt == 1 and blank == 2:
+            x[4] += 1
+        elif X_cnt == 3:
+            x[5] += 1
+        elif O_cnt == 3:
+            x[6] += 1
+            '''
+    return(x)
+    
+def boardchg(board):
+    boardin = np.zeros((84,1))
+    #reshape to an array of 42 columns, 1 per board entry
+    board = np.reshape(board, (1,42))
+    #if board entry has ' x ', 1
+    xfields = 1*(board == ' x ')
+    #if board entry has ' o ', 1
+    ofields = 1*(board == ' o ')
+    boardin = np.append(xfields, ofields)
+    return boardin
+    
+    
 class AI:
 #this is where the magic is supposed to happen - initialised for random play
 #TODO to be updated for the AI to learn
     def __init__(self, learningRate):
         self.learningRate = learningRate
+        
+        #build a graph
+        self.X = tf.placeholder(tf.float32, [1,84])
+        self.Y = tf.placeholder("float")
+        weights = np.random.rand(84)
+        self.W = tf.Variable(weights)
+        self.Y_model = tf.nn.softmax(tf.matmul(self.X,self.W))
+        self.error = tf.square(self.Y - self.Y_model)
+        self.train_op = tf.train.GradientDescentOptimizer(0.01).minimize(self.error)
+        self.model = tf.global_variables_initializer()
+        self.session = tf.Session().run(self.model)
     
     def score(self, board):
-        #TODO to be updated
-        return random.randint(0,100)
+        #Run the session
+        boardin = boardchg(board)
+        boardin = np.reshape(boardin, (84,1))
+        ret = self.session.run(self.Y_model, {self.X: boardin})
+        print(ret)
+        return ret
+        #x = extract_feat(board)   # extract the features of this test board
+        #return np.dot(x, weights)
+        #return random.randint(0,100)
     
     def learn(self, data, Y):
-        #TODO to be updated
+        #train
+        '''
+        print(data)
+        print(Y)
+        print(np.shape(data))
+        print(np.shape(Y))
+        '''
+        
+        #self.W = self.sess.run(self.W, {self.reward: Y})
         return None
-
-#auxiliary classes required for keeping the trace of moves
-class Node:
-    def __init__(self, board):
-        self.cargo = board
-        self.next = None
-
-    def getBoard(self):
-        return self.cargo
-    
-    def getNext(self):
-        return self.next
-    
-    def hasNext(self):
-        if self.next is None:
-            return False
-        else:
-            return True
-    
-    def cleanNext(self):
-        self.next = None
-    
-    def addNext(self, node):
-        if self.hasNext():
-            self.getNext().addNext(node)
-        else: 
-            self.next = node        
-            
-    def getLast(self):
-        if self.hasNext():
-            return self.getNext().getLast()
-        else:
-            return self.getBoard()
-        
-    def removeLast(self):
-        if self.hasNext():
-            if self.getNext().hasNext:
-                self.getNext().removeLast()
-            else:
-                self.cleanNext()
-
-#this class is used to keep the trace of nodes
-class LinkedList:
-    def __init__(self):
-        self.head = Node(newBoard())
-    
-    def getHead(self):
-        return self.head
-        
-    def addBoard(self, board):
-        self.getHead().addNext(Node(cp.deepcopy(board)))
-            
-    def getLastBoard(self):
-        return cp.deepcopy(self.getHead().getLast())
-    
-    def removeLastBoard(self):
-        self.getHead().removeLast()
-
-#present a game (human or random)
-def present():
-    #get input
-    player = input('Who will play? (random/human): ')
-    starter = input('Will the AI start? (Y/N)?: ')
-    if starter == 'Y':
-        aiFirst = True
-    else:
-        aiFirst = False
-    print("")
-    print("Alright let's play!")
-    print("")
-    #start game
-    dumbAI = AI(0.5)
-    g = Game(dumbAI, player, aiFirst, False, False)
-    prepTrainingData(g, 50)
-        
 
 #this method should be updated according with the data needs of the AI
 def prepTrainingData(finishedGame, reward):
@@ -467,7 +549,21 @@ def prepTrainingData(finishedGame, reward):
     #transform and delete first row of zeros
     gameData = np.asmatrix(np.delete(gameData, (0), axis=0))
     Y = np.full([84,1], reward/gameData.shape[0])
-    return gameData, Y
+    
+    #####
+    print(xfields)
+    print(ofields) 
+    gameOver, winner = isGameOver(finishedGame.getTrace().getLastBoard())
+    print(gameOver)
+    print(winner)
+    if winner == ' x ':
+        Z = np.append(xfields,-ofields)
+    else:
+        Z = np.append(-xfields,ofields)
+    print(Z)
+    Z = Z*Y[0]
+    print(Z)
+    return gameData, Y, Z
 
 #train the AI!
 
@@ -497,9 +593,12 @@ class Experiment:
             trainMatrix, Y = prepTrainingData(trainGame, reward)
             marty.learn(trainMatrix, Y)
             i -= 1
-
+            
+            #print(trainMatrix)
+            #print(np.shape(Y))
+        
         #test
-        nbTestGames = 1000
+        nbTestGames = 100
         j = nbTestGames
         while (j>0):
             #no exploration here, go for exploitation of gained knowledge
@@ -526,24 +625,23 @@ class Experiment:
         print(s)
         print("Test results (%):")
         s = "Win: " + str(wldtrain[0]/nbTestGames) + "; lose: " + str(wldtrain[1]/nbTestGames) + "; draw: " + str(wldtrain[2]/nbTestGames)
-        print(s)
+        print(s)    
+
+def present():
+    #configure experiment parameters & run experiment
+    learningRate = 0.5
+    aiFirst = True
+    nbGames = 100
+    exploration = True
+    reward = 1
+    penalty = -1
+    #print(learningRate)
+    Experiment(learningRate, aiFirst, nbGames, exploration, reward, penalty)
 
 
-#######################################################################################################################################
+##################################    
+### CONNECT 4 - enjoy the game ###
+##################################
 
-#####     ADD TRAINING, EXPERIMENTING, PLAYING HERE     #####
-
-#present()
-
-#configure experiment parameters & run experiment
-learningRate = 0.5
-aiFirst = True
-nbGames = 100
-exploration = True
-reward = 1
-penalty = -1
-print(learningRate)
-experiment = Experiment(learningRate, aiFirst, nbGames, exploration, reward, penalty)
-
-
-
+    
+present()
